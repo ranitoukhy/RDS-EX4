@@ -56,21 +56,26 @@ class EchoGetTokensMessage(Message):
         self.get_tokens_message = get_tokens_message
         self.tokens_info = tokens_info
 
-class getTokensResponse(Message):
+class GetTokensResponse(Message):
     def __init__(self, tokens_info, owner, sender):
         super().__init__(sender)
         self.tokens_info = tokens_info
         self.owner = owner
+
+class GetTokensUpdateRequest(Message):
+    def __init__(self, sender, tokens_info: dict):
+        super().__init__(sender)
+        self.tokens_info = tokens_info
 class Party:
     def __init__(self, id, party_type: PartyType):
         self.id = id
         self.tokens = {}
         self.party_type = party_type
-        self.pending_requests = set()
+        self.pending_requests = []
         self.current_request = None
         self.received_messages = []
         self.sent_messages = []
-        self.token_info = {}
+        self.tokens_info = {}
 
 
 
@@ -89,7 +94,7 @@ class Party:
         self.sent_messages.append(getTokensRequest)
 
         for server in AllEntities().get_servers():
-            print(f"{self.id} says: sending getTokens message to {server.id}")
+            print(f"{self.id} says: sending getTokens message to {server.id}\n")
             self.send_message(recipient=server, message=getTokensRequest)
 
         self.sent_messages.remove(getTokensRequest)
@@ -147,6 +152,8 @@ class Party:
         # Add your custom code here to handle the received message
 
     def listen_for_messages(self):
+        echo_count_pay = 0
+        echo_count_get = []
         while True:
             # Simulated check for incoming messages
             if self.received_messages:
@@ -154,20 +161,26 @@ class Party:
                 echo_count_get = []
                 # server/client logic when receiving PAY request
                 sender, message = self.received_messages.pop(0)
+
+                if (sender, message) not in self.pending_requests:
+                    self.pending_requests.append((sender, message))
+                if not self.current_request:
+                    self.current_request = self.pending_requests.pop(0)
+                    echo_count_pay = 0
+                    echo_count_get = []
+                    print(f"{self.id} says: initialized parameters")
                 if type(message) is PayMessage:
                     # if received pay message
-                    if message not in self.pending_requests:
-                        self.pending_requests.add(message)
-                    if not self.current_request:
-                        self.current_request = message
-                    self.token_info[message.token_id] = (message.owner, message.version)
+                    current_owner, current_version = self.tokens_info[message.token_id]
+                    if message.version > current_version:
+                        self.tokens_info[message.token_id] = (message.owner, message.version)
 
                     #send message to all servers
                     for server in AllEntities().get_servers():
                         echo_pay = EchoPayMessage(self.id, message)
                         self.send_message(recipient=server, message=echo_pay)
 
-                elif type(message) is EchoPayMessage and message.pay_message == self.current_request:
+                if type(message) is EchoPayMessage and message.pay_message == self.current_request:
                     echo_count_pay += 1
 
                 if echo_count_pay >= (AllEntities().server_num - AllEntities().faulty_num):
@@ -177,25 +190,47 @@ class Party:
                     print(f"{self.id} says: i got {echo_count_pay} echos")
 
                 if type(message) is GetTokensMessage:
-                    # if received getTokens message
-                    if message not in self.pending_requests:
-                        self.pending_requests.add(message)
-                    if not self.current_request:
-                        self.current_request = message
-                        # send message to all servers
+                    print(f"{self.id} says: got gettokens message")
+                    # if received getTokens message - send echo message to all servers
                     for server in AllEntities().get_servers():
-                        echo_get_tokens = EchoGetTokensMessage(self.id, message, self.token_info)
+                        echo_get_tokens = EchoGetTokensMessage(self.id, message, self.tokens_info)
                         self.send_message(recipient=server, message=echo_get_tokens)
 
-                elif type(message) is EchoGetTokensMessage and message.get_tokens_message == self.current_request:
+                if type(message) is EchoGetTokensMessage and message.get_tokens_message == self.current_request[1]:
                     echo_count_get.append(message)
-                if len(echo_count_get) >= (AllEntities().server_num - AllEntities().faulty_num):
-                    most_updated_tokens_ds = choose_most_updated_tokens_ds(echo_count_get)
-                    self.pending_requests.remove(message)
-                    self.current_request = None
-                    get_tokens_response_message =  getTokensResponse(most_updated_tokens_ds, message.get_tokens_message.owner, self.id)
-                    self.send_message(sender, get_tokens_response_message)
-                    print(f"{self.id} says: i got {len(echo_count_get)} echos and sent most updated tokens_info to client")
+                    print(f"{self.id} says: echo_count_get length is {len(echo_count_get)}")
+                    if len(echo_count_get) >= (AllEntities().server_num - AllEntities().faulty_num):
+                        print(f"{self.id} says: got EchoGetTokensMessage from {sender}")
+                        most_updated_tokens_ds = self.choose_most_updated_tokens_ds(echo_count_get)
+                        self.tokens_info = most_updated_tokens_ds
+                        self.get_tokens_send_info_to_client_and_servers(message.get_tokens_message.owner)
+                        self.pending_requests.remove(message)
+                        self.current_request = None
+
+                        print(
+                            f"{self.id} says: i got {len(echo_count_get)} echos and sent most updated tokens_info to client")
+
+                if type(message) is GetTokensUpdateRequest:
+                    self.tokens_info = message.tokens_info
+
+
+    def filter_tokens_by_owner(self, owner_id):
+        #filter tokens_info by owner
+        filtered_dict = {token_id: (owner, version) for token_id, (owner, version) in self.tokens_info.items() if owner == owner_id}
+        for token_id in filtered_dict.keys():
+            print(f"token id {token_id}: owned by {filtered_dict[token_id][0]} with version {filtered_dict[token_id][1]}")
+        return filtered_dict
+
+    def get_tokens_send_info_to_client_and_servers(self, owner):
+        #return the tokens that belong to the owner in the client request
+        get_tokens_response_message = GetTokensResponse(self.filter_tokens_by_owner(owner), owner, self.id)
+        self.send_message(self.current_request[0], get_tokens_response_message)
+
+        get_tokens_update_request = GetTokensUpdateRequest(self, self.tokens_info)
+
+        for server in AllEntities().get_servers():
+            self.send_message(server, get_tokens_update_request)
+
 
 
 
