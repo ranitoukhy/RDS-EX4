@@ -43,8 +43,8 @@ class AllEntities(metaclass=Singleton):
 
     def print_data(self):
         for server in list(self.get_servers()):
-            for token in server.token_info.keys():
-                print(f"{server.id} says : {token} belongs to {server.token_info[token][0]} version {server.token_info[token][1]}")
+            for token in server.tokens_info.keys():
+                print(f"{server.id} says : {token} belongs to {server.tokens_info[token][0]} version {server.tokens_info[token][1]}")
 
     def set_server_num(self, server_num):
         self.server_num = server_num

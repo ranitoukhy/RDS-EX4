@@ -21,8 +21,9 @@ def main():
     generate_servers(server_num, faulty_num, all_entities)
 
     dummy_client = list(all_entities.get_clients())[3]
-    dummy_client.pay(302, 2, 11)
-    all_entities.print_data()
+    # dummy_client.pay(302, 2, 11)
+    dummy_client.getTokens(12)
+    #all_entities.print_data()
 
     print("Generated entities")
 
@@ -34,7 +35,7 @@ def generate_servers(server_num, faulty_num, all_entities):
         faulty_num -= 1
         all_entities.add_server(server)
         for token in all_entities.get_tokens():
-            server.token_info[token.id] = (token.owner, token.version)
+            server.tokens_info[token.id] = (token.owner, token.version)
 
         server.start_listening()
 
