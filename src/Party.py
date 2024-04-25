@@ -213,14 +213,14 @@ class Party:
                             self.send_message(recipient=server, message=echo_pay)
                         print (f"{self.id} says: done pay request, waiting for echos")
                         done = True
-                    else:
-                        relevant_echos = self.filter_echos_for_current_request(echo_pay_messages)
-                        print (f"{self.id} says: {len(relevant_echos)} pay echos received")
 
-                        if len(relevant_echos) >= (AllEntities().server_num - AllEntities().faulty_num):
-                            self.send_message(self.current_request[0], StatusCode.OK)
-                            self.pending_requests.remove(message)
-                            self.current_request = None
+                    relevant_echos = self.filter_echos_for_current_request(echo_pay_messages)
+                    print (f"{self.id} says: {len(relevant_echos)} pay echos received")
+
+                    if len(relevant_echos) >= (AllEntities().server_num - AllEntities().faulty_num):
+                        self.send_message(self.current_request[0], StatusCode.OK)
+                        self.pending_requests.remove(message)
+                        self.current_request = None
 
 
                 if type(self.current_request[1]) is GetTokensMessage:
@@ -232,15 +232,15 @@ class Party:
                             self.send_message(recipient=server, message=echo_get_tokens)
                         print (f"{self.id} says: done gettokens request, waiting for echos")
                         done = True
-                    else:
-                        relevant_echos = self.filter_echos_for_current_request(echo_get_messages)
-                        print (f"{self.id} says: {len(relevant_echos)} gettokens echos received")
-                        if len(relevant_echos) >= (AllEntities().server_num - AllEntities().faulty_num):
-                            most_updated_tokens_ds = self.choose_most_updated_tokens_ds(echo_get_messages)
-                            self.tokens_info = most_updated_tokens_ds
-                            self.get_tokens_send_info_to_client_and_servers(message.owner)
-                            self.pending_requests.remove(message)
-                            self.current_request = None
+
+                    relevant_echos = self.filter_echos_for_current_request(echo_get_messages)
+                    print (f"{self.id} says: {len(relevant_echos)} gettokens echos received")
+                    if len(relevant_echos) >= (AllEntities().server_num - AllEntities().faulty_num):
+                        most_updated_tokens_ds = self.choose_most_updated_tokens_ds(echo_get_messages)
+                        self.tokens_info = most_updated_tokens_ds
+                        self.get_tokens_send_info_to_client_and_servers(message.owner)
+                        self.pending_requests.remove(message)
+                        self.current_request = None
 
 
 
