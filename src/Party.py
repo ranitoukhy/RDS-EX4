@@ -42,7 +42,7 @@ class PayMessage(Message):
 class EchoPayMessage(Message):
     def __init__(self, sender_id, pay_message: PayMessage):
         super().__init__(sender_id)
-        self.pay_message = pay_message
+        self.orig_message = pay_message
 
 class GetTokensMessage(Message):
     def __init__(self, owner, sender):
@@ -53,7 +53,7 @@ class GetTokensMessage(Message):
 class EchoGetTokensMessage(Message):
     def __init__(self, sender_id, get_tokens_message: GetTokensMessage, tokens_info: dict):
         super().__init__(sender_id)
-        self.get_tokens_message = get_tokens_message
+        self.orig_message = get_tokens_message
         self.tokens_info = tokens_info
 
 class GetTokensResponse(Message):
@@ -148,72 +148,109 @@ class Party:
 
     def receive_message(self, sender, message):
         self.received_messages.append((sender, message))
-        print(f"{self.id} received a message from {sender.id}")
-        # Add your custom code here to handle the received message
+        if type(message) is PayMessage:
+            print(f"{self.id} received a pay message from {sender.id}")
+        if type(message) is GetTokensMessage:
+            print(f"{self.id} received a getTokens message from {sender.id}")
+        if type(message) is GetTokensResponse:
+            print(f"{self.id} received a getTokensResponse message from {sender.id}")
+        if type(message) is EchoPayMessage:
+            print(f"{self.id} received an echo pay message from {sender.id}")
+        if type(message) is EchoGetTokensMessage:
+            print(f"{self.id} received an echo getTokens message from {sender.id}")
+        if type(message) is GetTokensUpdateRequest:
+            print(f"{self.id} received an getTokensUpdateRequest message from {sender.id}")
+        if type(message) is StatusCode:
+            print(f"{self.id} received a status code message from {sender.id}")
 
     def listen_for_messages(self):
-        echo_count_pay = 0
-        echo_count_get = []
+        echo_pay_messages = []
+        echo_get_messages = []
+        get_token_update_requests = []
+        done = False
         while True:
             # Simulated check for incoming messages
             if self.received_messages:
-                echo_count_pay = 0
-                echo_count_get = []
                 # server/client logic when receiving PAY request
                 sender, message = self.received_messages.pop(0)
-
-                if (sender, message) not in self.pending_requests:
+                print (f"***********{type(message)}***********")
+                is_messgae_a_request = type(message) is PayMessage or type(message) is GetTokensMessage
+                if (sender, message) not in self.pending_requests and is_messgae_a_request:
+                    #move the new request from received messages to pending requests
                     self.pending_requests.append((sender, message))
+
+
+                #if the message is not a new pay or gettokens request
+                elif type(messgae) is EchoPayMessage:
+                        print (f"{self.id} says: i appended an echo pay message from {sender.id}")
+                        echo_pay_messages.append((sender, message))
+                elif type(message) is EchoGetTokensMessage:
+                        print (f"{self.id} says: i appended an echo get tokens message from {sender.id}")
+
+                        echo_get_messages.append((sender, message))
+                elif type(message) is GetTokensUpdateRequest:
+                        self.tokens_info = message.tokens_info
+                print (f"{self.id} says: i received so far:{len(self.pending_requests) } request messages , {len(echo_pay_messages)} echo pay messages, {len(echo_get_messages)} echo get messages, {len(get_token_update_requests)} get token update requests")
                 if not self.current_request:
                     self.current_request = self.pending_requests.pop(0)
+                    done = False
                     echo_count_pay = 0
                     echo_count_get = []
                     print(f"{self.id} says: initialized parameters")
-                if type(message) is PayMessage:
+
+
+                if type(self.current_request[1]) is PayMessage:
                     # if received pay message
-                    current_owner, current_version = self.tokens_info[message.token_id]
-                    if message.version > current_version:
-                        self.tokens_info[message.token_id] = (message.owner, message.version)
+                    if not done:
+                        current_owner, current_version = self.tokens_info[self.current_request[1].token_id]
+                        if self.current_request[1].version > current_version:
+                            self.tokens_info[message.token_id] = (self.current_request[1].owner, self.current_request[1].version)
+                        #send message to all servers
+                        for server in AllEntities().get_servers():
+                            echo_pay = EchoPayMessage(self.id, self.current_request[1])
+                            print (f"{self.id} says: sending echo pay message to {server.id}")
 
-                    #send message to all servers
-                    for server in AllEntities().get_servers():
-                        echo_pay = EchoPayMessage(self.id, message)
-                        self.send_message(recipient=server, message=echo_pay)
+                            self.send_message(recipient=server, message=echo_pay)
+                        print (f"{self.id} says: done pay request, waiting for echos")
+                        done = True
+                    else:
+                        relevant_echos = self.filter_echos_for_current_request(echo_pay_messages)
+                        print (f"{self.id} says: {len(relevant_echos)} pay echos received")
 
-                if type(message) is EchoPayMessage and message.pay_message == self.current_request:
-                    echo_count_pay += 1
+                        if len(relevant_echos) >= (AllEntities().server_num - AllEntities().faulty_num):
+                            self.send_message(self.current_request[0], StatusCode.OK)
+                            self.pending_requests.remove(message)
+                            self.current_request = None
 
-                if echo_count_pay >= (AllEntities().server_num - AllEntities().faulty_num):
-                    self.pending_requests.remove(message)
-                    self.current_request = None
-                    self.send_message(sender, StatusCode.OK)
-                    print(f"{self.id} says: i got {echo_count_pay} echos")
 
-                if type(message) is GetTokensMessage:
-                    print(f"{self.id} says: got gettokens message")
+                if type(self.current_request[1]) is GetTokensMessage:
                     # if received getTokens message - send echo message to all servers
-                    for server in AllEntities().get_servers():
-                        echo_get_tokens = EchoGetTokensMessage(self.id, message, self.tokens_info)
-                        self.send_message(recipient=server, message=echo_get_tokens)
-
-                if type(message) is EchoGetTokensMessage and message.get_tokens_message == self.current_request[1]:
-                    echo_count_get.append(message)
-                    print(f"{self.id} says: echo_count_get length is {len(echo_count_get)}")
-                    if len(echo_count_get) >= (AllEntities().server_num - AllEntities().faulty_num):
-                        print(f"{self.id} says: got EchoGetTokensMessage from {sender}")
-                        most_updated_tokens_ds = self.choose_most_updated_tokens_ds(echo_count_get)
-                        self.tokens_info = most_updated_tokens_ds
-                        self.get_tokens_send_info_to_client_and_servers(message.get_tokens_message.owner)
-                        self.pending_requests.remove(message)
-                        self.current_request = None
-
-                        print(
-                            f"{self.id} says: i got {len(echo_count_get)} echos and sent most updated tokens_info to client")
-
-                if type(message) is GetTokensUpdateRequest:
-                    self.tokens_info = message.tokens_info
+                    if not done:
+                        for server in AllEntities().get_servers():
+                            echo_get_tokens = EchoGetTokensMessage(self.id, self.current_request[1], self.tokens_info)
+                            print (f"{self.id} says: sending echo get tokens message to {server.id}")
+                            self.send_message(recipient=server, message=echo_get_tokens)
+                        print (f"{self.id} says: done gettokens request, waiting for echos")
+                        done = True
+                    else:
+                        relevant_echos = self.filter_echos_for_current_request(echo_get_messages)
+                        print (f"{self.id} says: {len(relevant_echos)} gettokens echos received")
+                        if len(relevant_echos) >= (AllEntities().server_num - AllEntities().faulty_num):
+                            most_updated_tokens_ds = self.choose_most_updated_tokens_ds(echo_get_messages)
+                            self.tokens_info = most_updated_tokens_ds
+                            self.get_tokens_send_info_to_client_and_servers(message.owner)
+                            self.pending_requests.remove(message)
+                            self.current_request = None
 
 
+
+
+    def filter_echos_for_current_request(self, echo_messages):
+        #filter echo messages by current request
+        print("1111111")
+        filtered_echos = [echo for echo in echo_messages if echo.orig_message == self.current_request[1]]
+        print("2222222")
+        return filtered_echos
     def filter_tokens_by_owner(self, owner_id):
         #filter tokens_info by owner
         filtered_dict = {token_id: (owner, version) for token_id, (owner, version) in self.tokens_info.items() if owner == owner_id}
