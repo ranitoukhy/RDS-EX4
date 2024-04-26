@@ -173,7 +173,6 @@ class Party:
             if self.received_messages:
                 # server/client logic when receiving PAY request
                 sender, message = self.received_messages.pop(0)
-                print (f"***********{type(message)}***********")
                 is_messgae_a_request = type(message) is PayMessage or type(message) is GetTokensMessage
                 if (sender, message) not in self.pending_requests and is_messgae_a_request:
                     #move the new request from received messages to pending requests
@@ -194,8 +193,6 @@ class Party:
                 if not self.current_request:
                     self.current_request = self.pending_requests.pop(0)
                     done = False
-                    echo_count_pay = 0
-                    echo_count_get = []
                     print(f"{self.id} says: initialized parameters")
 
 
@@ -220,6 +217,7 @@ class Party:
                     if len(relevant_echos) >= (AllEntities().server_num - AllEntities().faulty_num):
                         self.send_message(self.current_request[0], StatusCode.OK)
                         self.pending_requests.remove(message)
+                        echo_pay_messages = [echo for echo in echo_pay_messages if echo not in relevant_echos]
                         self.current_request = None
 
 
@@ -240,6 +238,8 @@ class Party:
                         self.tokens_info = most_updated_tokens_ds
                         self.get_tokens_send_info_to_client_and_servers(message.owner)
                         self.pending_requests.remove(message)
+                        echo_get_messages = [echo for echo in echo_get_messages if echo not in relevant_echos]
+
                         self.current_request = None
 
 
